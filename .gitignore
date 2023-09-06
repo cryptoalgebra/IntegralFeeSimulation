@@ -18,3 +18,5 @@ src/bindings
 *.lock
 
 Result.json
+
+input/*.json

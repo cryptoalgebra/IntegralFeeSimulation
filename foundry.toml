@@ -1,4 +1,4 @@
 [profile.default]
 libs = ["lib"]
-out = "out"
-src = "contracts"
+out = "artifacts"
+src = "Algebra/src/plugins/contracts/test"

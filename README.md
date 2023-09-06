@@ -1,14 +1,14 @@
-# arbiter-template
+# Algebra Integral volatility fee simulation tool
 
-Minimal template for simulating contracts with arbiter. 
+A tool for conducting large-scale simulations of Algebra Integral volatility oracle nad adaptive fee behavior using historical data.
 
 ## Usage
 
 1. Clone this repository
 
 ```
-git clone https://github.com/primitivefinance/arbiter-template.git
-cd arbiter-template
+git clone https://github.com/cryptoalgebra/IntegralFeeSimulation.git
+cd IntegralFeeSimulation
 ```
 
 2. Install foundry
@@ -30,8 +30,13 @@ forge install
 forge bind --revert-strings debug -b src/bindings/ --module --overwrite
 ```
 
-5. Run the project
+5. Put input data in `input/swaps.json`
+
+
+6. Run the project
 
 ```
 cargo run
 ```
+
+7. Output data will be in `output/result.json`

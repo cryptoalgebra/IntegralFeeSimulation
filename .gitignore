@@ -2,6 +2,7 @@
 cache/
 out/
 target/
+artifacts/
 
 # Ignores development broadcast logs
 !/broadcast
@@ -16,3 +17,4 @@ docs/
 src/bindings
 *.lock
 
+Result.json

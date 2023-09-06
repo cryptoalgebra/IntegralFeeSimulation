@@ -10,13 +10,24 @@ use std::fs::File;
 use std::io::Read;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use std::{error::Error, sync::Arc};
+use std::{error::Error, sync::Arc, time::Duration};
 
 use crate::bindings::simulation_adaptive_fee::SimulationAdaptiveFee;
+use anyhow::Result;
+use ethers::{
+    core::{k256::ecdsa::SigningKey, utils::Anvil},
+    middleware::SignerMiddleware,
+    providers::{Http, Provider},
+    signers::{LocalWallet, Signer, Wallet},
+    utils::AnvilInstance,
+};
 
 mod bindings;
 
 const TEST_ENV_LABEL: &str = "test";
+
+const TIMEOUT: u64 = 60 * 60;
+const USE_ANVIL: bool = false;
 
 #[derive(Debug, Deserialize)]
 struct SwapEvent {
@@ -25,22 +36,15 @@ struct SwapEvent {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[allow(non_snake_case)]
 struct ResultOfSwap {
     timestamp: u32,
     tickAverage: i32,
     fee: u16,
     volatilityAverage: u128,
     tick: i32,
+    gasUsed: String,
 }
-
-fn get_time_now() -> u64 {
-    return SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-}
-
-const TIMEOUT: u64 = 60 * 60;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn Error>> {
@@ -54,13 +58,27 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         },
     );
 
-    let client_with_signer = Arc::new(RevmMiddleware::new(
-        manager.environments.get(TEST_ENV_LABEL).unwrap(),
-        None,
-    ));
-    manager.start_environment(TEST_ENV_LABEL)?;
+    let res: Vec<ResultOfSwap>;
+    if USE_ANVIL {
+        let (client_with_signer, _anvil_instance) = anvil_startup().await?;
+        println!("Anvil started");
+        res = simulator(client_with_signer).await?;
+    } else {
+        let client_with_signer = Arc::new(RevmMiddleware::new(
+            manager.environments.get(TEST_ENV_LABEL).unwrap(),
+            None,
+        ));
+        manager.start_environment(TEST_ENV_LABEL)?;
+        res = simulator(client_with_signer).await?;
+    }
 
-    let oracle_simulation = SimulationAdaptiveFee::deploy(client_with_signer.clone(), ())?
+    let mut file = std::fs::File::create("./output/result.json")?;
+    serde_json::to_writer(&mut file, &res)?;
+    Ok(())
+}
+
+async fn simulator<M: Middleware + 'static>(client: Arc<M>) -> Result<Vec<ResultOfSwap>> {
+    let oracle_simulation = SimulationAdaptiveFee::deploy(client.clone(), ())?
         .send()
         .await?;
 
@@ -98,7 +116,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         if last_timestamp != timestamp {
             let time_delta = timestamp - last_timestamp;
 
-            let _: Option<TransactionReceipt> = oracle_simulation
+            let tx: Option<TransactionReceipt> = oracle_simulation
                 .update(
                     bindings::simulation_adaptive_fee::simulation_adaptive_fee::UpdateParams {
                         advance_time_by: time_delta,
@@ -112,12 +130,19 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
             last_timestamp = timestamp;
             let fee_data = oracle_simulation.get_fee().await?;
 
+            let mut gas_used = "0".to_string();
+
+            if USE_ANVIL {
+                gas_used = tx.unwrap().gas_used.unwrap().to_string();
+            }
+
             res.push(ResultOfSwap {
                 timestamp,
                 tickAverage: fee_data.2,
                 volatilityAverage: fee_data.1,
                 tick: last_tick,
                 fee: fee_data.0,
+                gasUsed: gas_used,
             })
         }
         last_tick = tick;
@@ -156,12 +181,38 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let mut file = std::fs::File::create("./output/result.json")?;
-    serde_json::to_writer(&mut file, &res)?;
-
     let finish_time = get_time_now();
     println!("Finish time {:?}", finish_time);
     println!("Elapsed (seconds) {:?}", finish_time - start_time);
 
-    Ok(())
+    Ok(res)
+}
+
+async fn anvil_startup() -> Result<(
+    Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
+    AnvilInstance,
+)> {
+    // Create an Anvil instance
+    // No blocktime mines a new block for each tx, which is fastest.
+    let anvil = Anvil::new().spawn();
+
+    // Create a client
+    let provider = Provider::<Http>::try_from(anvil.endpoint())
+        .unwrap()
+        .interval(Duration::ZERO);
+
+    let wallet: LocalWallet = anvil.keys()[0].clone().into();
+    let client = Arc::new(SignerMiddleware::new(
+        provider,
+        wallet.with_chain_id(anvil.chain_id()),
+    ));
+
+    Ok((client, anvil))
+}
+
+fn get_time_now() -> u64 {
+    return SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
 }

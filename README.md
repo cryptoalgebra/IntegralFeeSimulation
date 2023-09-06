@@ -1,6 +1,6 @@
 # Algebra Integral volatility fee simulation tool
 
-A tool for conducting large-scale simulations of Algebra Integral volatility oracle nad adaptive fee behavior using historical data.
+A tool for conducting large-scale simulations of Algebra Integral volatility oracle and adaptive fee behavior using historical data.
 
 Forked from https://github.com/primitivefinance/arbiter-template
 

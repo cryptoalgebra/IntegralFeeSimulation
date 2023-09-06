@@ -103,7 +103,6 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
                     bindings::simulation_adaptive_fee::simulation_adaptive_fee::UpdateParams {
                         advance_time_by: time_delta,
                         tick: last_tick,
-                        liquidity: 0,
                     },
                 )
                 .send()

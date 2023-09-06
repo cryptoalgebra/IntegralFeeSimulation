@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use std::{error::Error, sync::Arc};
 
-use crate::bindings::adaptive_fee_simulation::AdaptiveFeeSimulation;
+use crate::bindings::simulation_adaptive_fee::SimulationAdaptiveFee;
 
 mod bindings;
 
@@ -60,7 +60,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     ));
     manager.start_environment(TEST_ENV_LABEL)?;
 
-    let oracle_simulation = AdaptiveFeeSimulation::deploy(client_with_signer.clone(), ())?
+    let oracle_simulation = SimulationAdaptiveFee::deploy(client_with_signer.clone(), ())?
         .send()
         .await?;
 
@@ -73,7 +73,8 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     let mut data = String::new();
     file.read_to_string(&mut data).unwrap();
 
-    let json: Vec<SwapEvent> = serde_json::from_str(&data).expect("JSON was not well-formatted");
+    let swaps_events: Vec<SwapEvent> =
+        serde_json::from_str(&data).expect("JSON was not well-formatted");
 
     let mut pack_num: u32 = 0;
     let mut res: Vec<ResultOfSwap> = vec![];
@@ -81,8 +82,8 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     let start_time = get_time_now();
     println!("Start time {:?}", start_time);
 
-    let mut last_tick: i32 = json[0].tick.parse::<i32>().unwrap();
-    let mut last_timestamp: u32 = json[0].timestamp.parse::<u32>().unwrap();
+    let mut last_tick: i32 = swaps_events[0].tick.parse::<i32>().unwrap();
+    let mut last_timestamp: u32 = swaps_events[0].timestamp.parse::<u32>().unwrap();
     println!("First tick {:?}", last_tick);
 
     oracle_simulation
@@ -91,17 +92,18 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         .await?
         .await?;
 
-    for index in 1..100 {
-        let timestamp = json[index].timestamp.parse::<u32>().unwrap();
-        let tick = json[index].tick.parse::<i32>().unwrap();
+    for index in 1..swaps_events.len() {
+        let timestamp = swaps_events[index].timestamp.parse::<u32>().unwrap();
+        let tick = swaps_events[index].tick.parse::<i32>().unwrap();
         if last_timestamp != timestamp {
             let time_delta = timestamp - last_timestamp;
 
             let _: Option<TransactionReceipt> = oracle_simulation
                 .update(
-                    bindings::adaptive_fee_simulation::adaptive_fee_simulation::UpdateParams {
+                    bindings::simulation_adaptive_fee::simulation_adaptive_fee::UpdateParams {
                         advance_time_by: time_delta,
                         tick: last_tick,
+                        liquidity: 0,
                     },
                 )
                 .send()
@@ -125,7 +127,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
             let time_now = get_time_now();
             let speed = index as f64 / (time_now - start_time) as f64;
             if speed > 0.0 {
-                let time_estimation = ((json.len() - index) as f64 / speed).floor() as i64;
+                let time_estimation = ((swaps_events.len() - index) as f64 / speed).floor() as i64;
                 let estimated_hours = time_estimation / (60 * 60);
                 let estimated_minutes = time_estimation % (60 * 60) / 60;
                 let estimated_seconds = time_estimation % (60 * 60) % 60;
@@ -133,19 +135,23 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
                 println!(
                     "Done {:?} / {:?} est time: {:?}:{:?}:{:?}",
                     index,
-                    json.len(),
+                    swaps_events.len(),
                     estimated_hours,
                     estimated_minutes,
                     estimated_seconds
                 );
             } else {
-                println!("Done {:?} / {:?}", index, json.len());
+                println!("Done {:?} / {:?}", index, swaps_events.len());
             }
 
             pack_num = index as u32 / 5000;
 
             if time_now - start_time > TIMEOUT {
-                println!("Finishing by timeout: {:?} / {:?}", index, json.len());
+                println!(
+                    "Finishing by timeout: {:?} / {:?}",
+                    index,
+                    swaps_events.len()
+                );
                 break;
             }
         }

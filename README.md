@@ -9,7 +9,7 @@ Forked from https://github.com/primitivefinance/arbiter-template
 1. Clone this repository
 
 ```
-git clone https://github.com/cryptoalgebra/IntegralFeeSimulation.git
+git clone https://github.com/cryptoalgebra/IntegralFeeSimulation.git --recursive
 cd IntegralFeeSimulation
 ```
 

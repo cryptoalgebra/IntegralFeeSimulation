@@ -2,6 +2,8 @@
 
 A tool for conducting large-scale simulations of Algebra Integral volatility oracle nad adaptive fee behavior using historical data.
 
+Forked from https://github.com/primitivefinance/arbiter-template
+
 ## Usage
 
 1. Clone this repository

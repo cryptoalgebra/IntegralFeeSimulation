@@ -1,7 +1,9 @@
 extern crate serde;
 
 use arbiter_core::{
-    environment::EnvironmentParameters, manager::Manager, middleware::RevmMiddleware,
+    environment::{BlockSettings, EnvironmentParameters, GasSettings},
+    manager::Manager,
+    middleware::RevmMiddleware,
 };
 use ethers::prelude::*;
 use serde::Deserialize;
@@ -10,24 +12,16 @@ use std::fs::File;
 use std::io::Read;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use std::{error::Error, sync::Arc, time::Duration};
+use std::{error::Error, sync::Arc};
 
 use crate::bindings::simulation_adaptive_fee::SimulationAdaptiveFee;
 use anyhow::Result;
-use ethers::{
-    core::{k256::ecdsa::SigningKey, utils::Anvil},
-    middleware::SignerMiddleware,
-    providers::{Http, Provider},
-    signers::{LocalWallet, Signer, Wallet},
-    utils::AnvilInstance,
-};
 
 mod bindings;
 
 const TEST_ENV_LABEL: &str = "test";
 
 const TIMEOUT: u64 = 60 * 60;
-const USE_ANVIL: bool = false;
 
 #[derive(Debug, Deserialize)]
 struct SwapEvent {
@@ -50,35 +44,23 @@ struct ResultOfSwap {
 pub async fn main() -> Result<(), Box<dyn Error>> {
     let mut manager = Manager::new();
 
-    let _ = manager.add_environment(
-        TEST_ENV_LABEL,
-        EnvironmentParameters {
+    let _ = manager.add_environment(EnvironmentParameters {
+        label: TEST_ENV_LABEL.to_owned(),
+        block_settings: BlockSettings::RandomlySampled {
             block_rate: 1.0,
+            block_time: 1,
             seed: 1,
         },
+        gas_settings: GasSettings::Constant(0),
+    });
+    manager.start_environment(TEST_ENV_LABEL)?;
+
+    let client_with_signer = Arc::new(
+        RevmMiddleware::new(manager.environments.get(TEST_ENV_LABEL).unwrap(), None).unwrap(),
     );
 
-    let res: Vec<ResultOfSwap>;
-    if USE_ANVIL {
-        let (client_with_signer, _anvil_instance) = anvil_startup().await?;
-        println!("Anvil started");
-        res = simulator(client_with_signer).await?;
-    } else {
-        let client_with_signer = Arc::new(RevmMiddleware::new(
-            manager.environments.get(TEST_ENV_LABEL).unwrap(),
-            None,
-        ));
-        manager.start_environment(TEST_ENV_LABEL)?;
-        res = simulator(client_with_signer).await?;
-    }
-
-    let mut file = std::fs::File::create("./output/result.json")?;
-    serde_json::to_writer(&mut file, &res)?;
-    Ok(())
-}
-
-async fn simulator<M: Middleware + 'static>(client: Arc<M>) -> Result<Vec<ResultOfSwap>> {
-    let oracle_simulation = SimulationAdaptiveFee::deploy(client.clone(), ())?
+    let oracle_simulation = SimulationAdaptiveFee::deploy(client_with_signer.clone(), ())
+        .unwrap()
         .send()
         .await?;
 
@@ -130,11 +112,7 @@ async fn simulator<M: Middleware + 'static>(client: Arc<M>) -> Result<Vec<Result
             last_timestamp = timestamp;
             let fee_data = oracle_simulation.get_fee().await?;
 
-            let mut gas_used = "0".to_string();
-
-            if USE_ANVIL {
-                gas_used = tx.unwrap().gas_used.unwrap().to_string();
-            }
+            let gas_used = tx.unwrap().gas_used.unwrap().to_string();
 
             res.push(ResultOfSwap {
                 timestamp,
@@ -185,29 +163,9 @@ async fn simulator<M: Middleware + 'static>(client: Arc<M>) -> Result<Vec<Result
     println!("Finish time {:?}", finish_time);
     println!("Elapsed (seconds) {:?}", finish_time - start_time);
 
-    Ok(res)
-}
-
-async fn anvil_startup() -> Result<(
-    Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
-    AnvilInstance,
-)> {
-    // Create an Anvil instance
-    // No blocktime mines a new block for each tx, which is fastest.
-    let anvil = Anvil::new().spawn();
-
-    // Create a client
-    let provider = Provider::<Http>::try_from(anvil.endpoint())
-        .unwrap()
-        .interval(Duration::ZERO);
-
-    let wallet: LocalWallet = anvil.keys()[0].clone().into();
-    let client = Arc::new(SignerMiddleware::new(
-        provider,
-        wallet.with_chain_id(anvil.chain_id()),
-    ));
-
-    Ok((client, anvil))
+    let mut file = std::fs::File::create("./output/result.json")?;
+    serde_json::to_writer(&mut file, &res)?;
+    Ok(())
 }
 
 fn get_time_now() -> u64 {

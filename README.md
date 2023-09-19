@@ -24,7 +24,7 @@ Structures will contain following fields:
 - `fee` - adaptive fee value for this timestamp (with default configuration)
 - `volatilityAverage` - average volatility for 24h window
 - `tick` - the tick at the start of this block (before any swaps)
-- `gasUsed` - gas used for write. Will be `0` if constant `USE_ANVIL` in `src/main.rs` is `false`
+- `gasUsed` - gas used for write
 
 The obtained data, in particular, about the average volatility, can be conveniently used to compare adaptive fee values ​​for different adaptive fee configurations.
 

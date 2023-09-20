@@ -92,6 +92,11 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         .await?
         .await?;
 
+    let mut gas_cumulative = U256::zero();
+    let mut last_pack_gas_cumulative = U256::zero();
+    let mut counter = 0;
+    let mut last_pack_counter = 0;
+
     for index in 1..swaps_events.len() {
         let timestamp = swaps_events[index].timestamp.parse::<u32>().unwrap();
         let tick = swaps_events[index].tick.parse::<i32>().unwrap();
@@ -112,7 +117,9 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
             last_timestamp = timestamp;
             let fee_data = oracle_simulation.get_fee().await?;
 
-            let gas_used = tx.unwrap().gas_used.unwrap().to_string();
+            let gas_used = tx.unwrap().gas_used.unwrap();
+            gas_cumulative += gas_used;
+            counter += 1;
 
             res.push(ResultOfSwap {
                 timestamp,
@@ -120,7 +127,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
                 volatilityAverage: fee_data.1,
                 tick: last_tick,
                 fee: fee_data.0,
-                gasUsed: gas_used,
+                gasUsed: gas_used.to_string(),
             })
         }
         last_tick = tick;
@@ -135,9 +142,10 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
                 let estimated_seconds = time_estimation % (60 * 60) % 60;
 
                 println!(
-                    "Done {:?} / {:?} est time: {:?}:{:?}:{:?}",
+                    "Done {:?} / {:?}, avg gas:{:?}, est time: {:?}:{:?}:{:?}",
                     index,
                     swaps_events.len(),
+                    (gas_cumulative - last_pack_gas_cumulative) / (counter - last_pack_counter),
                     estimated_hours,
                     estimated_minutes,
                     estimated_seconds
@@ -147,6 +155,8 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
             }
 
             pack_num = index as u32 / 5000;
+            last_pack_gas_cumulative = gas_cumulative;
+            last_pack_counter = counter;
 
             if time_now - start_time > TIMEOUT {
                 println!(
